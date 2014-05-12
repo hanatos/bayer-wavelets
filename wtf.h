@@ -198,8 +198,7 @@ static inline float weight(
     const int ac,
     const buffer_t *b,
     const int bx,
-    const int by,
-    float sigma_noise)
+    const int by)
 {
   const float pbc = buffer_get(b, bx, by, ac); // source buffer is unknown, never use it
   if(pbc < 0.0) return 0.0;
@@ -217,7 +216,9 @@ static inline float weight(
     if(pa < 0.0 || pb < 0.0) continue;
 
     // this threshold subtraction considers part of the signal as noise and subtracts that.
-    const float dd = fmaxf(0.0f, (pa - pb)*(pa - pb) - sigma_noise*sigma_noise);
+    // noise sigma is normalised to 1.0, so 3sigma^2 = 9 is our noise floor (this is a
+    // two-noisy-estimator distance, so it's actually 1.5sigma for either side).
+    const float dd = fmaxf(0.0f, (pa - pb)*(pa - pb) - 9.0f);
     d += cw[k]*dd;
     dims++;
   }
@@ -232,8 +233,7 @@ static inline void decompose(
     buffer_t *coarse,
     buffer_t *detail,
     int channel,
-    int scale,
-    float sigma_noise)
+    int scale)
 {
   const int mult = 1<<scale;
   const float filter[5] = {1.0f/16.0f, 4.0f/16.0f, 6.0f/16.0f, 4.0f/16.0f, 1.0f/16.0f};
@@ -251,7 +251,7 @@ static inline void decompose(
       {
         const int xx = x+mult*(i-2), yy = y+mult*(j-2);
         const float px = buffer_get(input, xx, yy, channel);
-        const float w = filter[i]*filter[j]*weight(input, x, y, channel, input, xx, yy, sigma_noise);
+        const float w = filter[i]*filter[j]*weight(input, x, y, channel, input, xx, yy);
         sum += w*px;
         wgt += w;
       }
