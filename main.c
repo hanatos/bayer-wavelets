@@ -16,12 +16,22 @@ int main(int argc, char *argv[])
   // raw->noise_b = 3.47619065786586e-07;
 
   // hand dialed for iso6400:
-  raw->noise_a = 14.7e-5;
-  raw->noise_b = 7.0e-7;
+  // raw->noise_a = 14.7e-5;
+  // raw->noise_b = 7.0e-7;
 
-  // derived from post-bayer measurements for iso100:
-  // raw->noise_a = 2.8e-6;
-  // raw->noise_b = -1.9e-7;
+  // iso 25600
+  // raw->noise_a = 120.e-5;
+  // raw->noise_b = 60.e-7;
+  raw->noise_a = 240.e-5;
+  raw->noise_b = 120.e-7;
+
+  // from noiseprofiles.h for iso 1600
+  // raw->noise_a = 2.4e-5;
+  // raw->noise_b = -6e-7;
+
+  // noiseprofiles.h for iso 100
+  // raw->noise_a = 2.5e-6;
+  // raw->noise_b = -1.3e-7;
 
   // measured for this particular image:
   // 8.39358241472871e-05 3.39274120804604e-05 8.0308395485184e-05 -1.16520884450047e-06 -4.33714555176887e-07 -1.09341959573161e-06

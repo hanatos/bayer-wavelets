@@ -224,8 +224,8 @@ static inline float weight(
     dims++;
   }
   // XXX use superfast patented approximation from darktable code:
-  const float weight = expf(-d/dims*1e6f);
-   // fprintf(stderr, "weight %g of d=%g %g\n", weight, d, -d/dims*1e10f);
+  const float weight = expf(-d/dims*5e-1);
+   // fprintf(stderr, "weight %g of d=%g %g\n", weight, d, -d/dims);
   return weight;
 }
 
@@ -292,8 +292,11 @@ static inline void synthesize(
   for(int y=0;y<detail->height;y++) for(int x=0;x<detail->width;x++)
   {
     const float d = buffer_get(detail, x, y, channel);
-    sigma_d2 = sigma_d2 * k/(k+1.0) + d*d * 1.0/(k+1.0);
-    k++;
+    if(d > 0.0) // == 0 is probably coming from an unset pixel.
+    {
+      sigma_d2 = sigma_d2 * k/(k+1.0) + d*d * 1.0/(k+1.0);
+      k++;
+    }
   }
 
   // wavelet shrinkage threshold.
