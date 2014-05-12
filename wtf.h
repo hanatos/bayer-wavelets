@@ -12,17 +12,20 @@
 
 typedef enum buffer_type_t
 {
-  s_buf_none,
-  s_buf_raw,
-  s_buf_float,
+  s_buf_none,                // error type
+  s_buf_raw,                 // 1x uint16_t per pixel, normalised to max = 0xffff
+  s_buf_float,               // 3x float per pixel in [0,1]
+  s_buf_raw_stabilise,       // raw, but evaluation should take variance stabilisation into account
+  s_buf_float_backtransform, // float, but evaluation should undo the variance transform.
 }
 buffer_type_t;
 
 typedef struct buffer_t
 {
-  buffer_type_t type;
-  void *data;
-  int width, height;
+  buffer_type_t type;        // type, see above
+  void *data;                // allocated data, depends on type
+  int width, height;         // dimensions of the buffer
+  float noise_a, noise_b;    // noise variance model parameters
 }
 buffer_t;
 
@@ -31,17 +34,23 @@ static inline int buffer_get_channel(
     const int y)
 {
   // equivalent to dcraw's FC()
-  // hardcoded rggb for now:
+  // hardcoded rggb for now. should work on x-trans style sensors, too.
   const int ch[4] = {0, 1, 1, 2};
   return ch[(x&1)+2*(y&1)];
 }
 
 static inline float buffer_get(
     const buffer_t *b,
-    const int x,
-    const int y,
+    int x,
+    int y,
     const int channel)
 {
+  // handle buffer boundaries (sample and hold)
+  if(x < 0) x = 0;
+  if(y < 0) y = 0;
+  if(x >= b->width) x = b->width-1;
+  if(y >= b->height) y = b->height-1;
+
   switch(b->type)
   {
     case s_buf_raw:
@@ -49,6 +58,21 @@ static inline float buffer_get(
       return ((uint16_t *)b->data)[x + b->width*y]/(float)0xffff;
     case s_buf_float:
       return ((float *)b->data)[3*(x + b->width*y) + channel];
+    case s_buf_raw_stabilise:
+      { // apply variance stabilising transform (should be 1.0 after this)
+      if(channel != buffer_get_channel(x, y)) return -1.0f; // mark as not set
+      const float sigma2 = (b->noise_b/b->noise_a)*(b->noise_b/b->noise_a);
+      const float v = ((uint16_t *)b->data)[x + b->width*y]/(float)0xffff;
+      return 2.0f*sqrtf(fmaxf(0.0f, v/b->noise_a + 3./8. + sigma2));
+      }
+    case s_buf_float_backtransform:
+      { // backtransform to normal domain
+      const float sigma2 = (b->noise_b/b->noise_a)*(b->noise_b/b->noise_a);
+      float v = ((float *)b->data)[3*(x + b->width*y) + channel];
+      if(v < .5f) return 0.0f;
+      v = 1./4.*v*v + 1./4.*sqrtf(3./2.)/v - 11./8./(v*v) + 5./8.*sqrtf(3./2.)/(v*v*v) - 1./8. - sigma2;
+      return v * b->noise_a;
+      }
     default:
       return 0.0f;
   }
@@ -64,10 +88,12 @@ static inline void buffer_set(
   switch(b->type)
   {
     case s_buf_raw:
+    case s_buf_raw_stabilise:
       if(channel != buffer_get_channel(x, y)) return; // wrong color channel
       ((uint16_t *)b->data)[x + b->width*y] = CLAMP(value * 0xffff, 0, 0xffff);
       return;
     case s_buf_float:
+    case s_buf_float_backtransform:
       ((float *)b->data)[3*(x + b->width*y) + channel] = value;
       return;
     default:
@@ -98,7 +124,16 @@ static inline void buffer_write_pfm(
     while((len + 1 + off) & 0xf) off++;
     while(off-- > 0) fprintf(f, "0");
     fprintf(f, "\n");
-    fwrite(b->data, b->width*b->height, 3*sizeof(float), f);
+    if(b->type == s_buf_float)
+      fwrite(b->data, b->width*b->height, 3*sizeof(float), f);
+    else if(b->type == s_buf_float_backtransform)
+    { // write one-by-one and backtransform
+      for(int j=0;j<b->height;j++) for(int i=0;i<b->width;i++) for(int k=0;k<3;k++)
+      {
+        const float v = buffer_get(b, i, j, k);
+        fwrite(&v, sizeof(float), 1, f);
+      }
+    }
     fclose(f);
   }
 }
