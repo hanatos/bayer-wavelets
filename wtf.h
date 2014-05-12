@@ -166,9 +166,6 @@ static inline float weight(
     const int by,
     float sigma_noise)
 {
-  // const float pac = buffer_get(a, ax, ay, ac);
-  // if(pac < 0.0) return 1.0f; // if the pixel is unset, take whatever we can get.
-
   const float pbc = buffer_get(b, bx, by, ac); // source buffer is unknown, never use it
   if(pbc < 0.0) return 0.0;
   // destination buffer is unknown, weight all others with 1
@@ -183,20 +180,8 @@ static inline float weight(
     const float pa = buffer_get(a, ax, ay, k);
     const float pb = buffer_get(b, bx, by, k);
     if(pa < 0.0 || pb < 0.0) continue;
-#if 0
-    // if the pixel has no value yet, take whatever we get (distance 0)
-    if(pa < 0.0) continue;
-    // don't blur non existing values into our pixel
-    if(pb < 0.0)
-    {
-      d += 10000.0f;
-      continue;
-    }
-#endif
 
     // this threshold subtraction considers part of the signal as noise and subtracts that.
-    // XXX we probably want to subtract both gaussian + poissonian part at this point, maybe
-    // for each image (and thus brightness) separately before this step.
     const float dd = fmaxf(0.0f, (pa - pb)*(pa - pb) - sigma_noise*sigma_noise);
     d += cw[k]*dd;
     dims++;
