@@ -164,6 +164,7 @@ static inline buffer_t *buffer_read_pgm16(
       ((uint16_t*)b->data)[k] = (((uint16_t*)b->data)[k]<<8) | (((uint16_t*)b->data)[k]>>8);
       maxval = MAX(maxval, ((uint16_t*)b->data)[k]);
     }
+    fprintf(stderr, "[read_ppm16] scaling by %u\n", maxval);
     // rescale to full range:
     for(int k=0;k<wd*ht;k++)
       ((uint16_t*)b->data)[k] = (uint16_t)CLAMP(((uint16_t*)b->data)[k]/(float)maxval*0xffff, 0, 0xffff);
@@ -218,7 +219,7 @@ static inline float weight(
     // this threshold subtraction considers part of the signal as noise and subtracts that.
     // noise sigma is normalised to 1.0, so 3sigma^2 = 9 is our noise floor (this is a
     // two-noisy-estimator distance, so it's actually 1.5sigma for either side).
-    const float dd = fmaxf(0.0f, (pa - pb)*(pa - pb) - 9.0f);
+    const float dd = fmaxf(0.0f, (pa - pb)*(pa - pb) - 16.0f);
     d += cw[k]*dd;
     dims++;
   }
@@ -243,7 +244,7 @@ static inline void decompose(
   {
     const int progress = __sync_fetch_and_add(&cnt, 1);
     if((progress & 0xff) == 0xff || progress == coarse->height-1)
-      fprintf(stderr, "%d/%d\r", progress, coarse->height);
+      fprintf(stderr, "decompose scale %d channel %d %d/%d\r", scale, channel, progress, coarse->height);
     for(int x=0;x<coarse->width;x++)
     {
       float wgt = 0.0f, sum = 0.0f;
@@ -256,14 +257,18 @@ static inline void decompose(
         wgt += w;
       }
       if(wgt <= 0.0)
-      {
+      { // no neighbours with this color found. probably x-trans :(
         buffer_set(detail, x, y, channel, 0.0);
         buffer_set(coarse, x, y, channel, -1.0);
       }
       else
-      {
+      { // have some estimated coarse value, yay
         sum /= wgt;
-        buffer_set(detail, x, y, channel, buffer_get(input, x, y, channel) - sum);
+        const float pixel = buffer_get(input, x, y, channel);
+        if(pixel >= 0.0) // do we also have a previous value? if yes, encode difference:
+          buffer_set(detail, x, y, channel, buffer_get(input, x, y, channel) - sum);
+        else // or else make it smooth
+          buffer_set(detail, x, y, channel, 0.0);
         buffer_set(coarse, x, y, channel, sum);
       }
     }
@@ -271,12 +276,31 @@ static inline void decompose(
 }
 
 static inline void synthesize(
-    buffer_t *coarse,
+    buffer_t *output,
+    const buffer_t *coarse,
     const buffer_t *detail,
-    int channel)
+    int channel,
+    int scale)
 {
-  const float thrs = 0.0f;  // wavelet shrinkage
-  const float boost = 1.0f; // local contrast
+  fprintf(stderr, "synthesizing scale %d channel %d                     \r", scale, channel);
+  // noise variance level 0: 1.0
+  const float sigma_n = powf(2.0f, -scale);
+  // bayes shrink: T = sigma_n^2 / sqrtf(sigma_d^2 - sigma_n^2)
+  // sigma_d^2 = 1/N sum detail(i)^2
+  float sigma_d2 = 0.0f;
+  int k = 0;
+  for(int y=0;y<detail->height;y++) for(int x=0;x<detail->width;x++)
+  {
+    const float d = buffer_get(detail, x, y, channel);
+    sigma_d2 = sigma_d2 * k/(k+1.0) + d*d * 1.0/(k+1.0);
+    k++;
+  }
+
+  // wavelet shrinkage threshold.
+  const float thrs = sigma_n*sigma_n / sqrtf(fmaxf(1e-20f, sigma_d2 - sigma_n*sigma_n));
+  const float boost = 1.0f;
+  fprintf(stderr, "\nscale %d sigma noise %g signal %g => thrs %g boost %g\n", scale, sigma_n, sqrtf(sigma_d2), thrs, boost);
+#pragma omp parallel for default(shared)
   for(int y=0;y<coarse->height;y++)
   {
     for(int x=0;x<coarse->width;x++)
@@ -284,8 +308,8 @@ static inline void synthesize(
       // coarse should not have any unset pixels any more at this point.
       const float px = buffer_get(detail, x, y, channel);
       const float d = fmaxf(0.0f, fabsf(px) - thrs)*boost;
-      if(px > 0.0f) buffer_set(coarse, x, y, channel, buffer_get(coarse, x, y, channel) + d);
-      else          buffer_set(coarse, x, y, channel, buffer_get(coarse, x, y, channel) - d);
+      if(px > 0.0f) buffer_set(output, x, y, channel, buffer_get(coarse, x, y, channel) + d);
+      else          buffer_set(output, x, y, channel, buffer_get(coarse, x, y, channel) - d);
     }
   }
 }
