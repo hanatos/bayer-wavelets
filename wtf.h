@@ -239,6 +239,7 @@ static inline void decompose(
   const int mult = 1<<scale;
   const float filter[5] = {1.0f/16.0f, 4.0f/16.0f, 6.0f/16.0f, 4.0f/16.0f, 1.0f/16.0f};
   int cnt = 0;
+  int flycnt = 0;
 #pragma omp parallel for default(shared)
   for(int y=0;y<coarse->height;y++)
   {
@@ -248,18 +249,33 @@ static inline void decompose(
     for(int x=0;x<coarse->width;x++)
     {
       float wgt = 0.0f, sum = 0.0f;
+      const float null_thrs = 0.3f;
+      int null_cnt = 0;
+      int restart = 0;
+restart:
       for(int j=0;j<5;j++) for(int i=0;i<5;i++)
       {
         const int xx = x+mult*(i-2), yy = y+mult*(j-2);
         const float px = buffer_get(input, xx, yy, channel);
-        const float w = filter[i]*filter[j]*weight(input, x, y, channel, input, xx, yy);
+        float ww = weight(input, x, y, channel, input, xx, yy);
+        if(restart) ww = ww > 0.0 ? 1.0 : 0.0;
+        const float w = filter[i]*filter[j]*ww;
         sum += w*px;
         wgt += w;
+        if(ww < null_thrs) null_cnt++;
       }
       if(wgt <= 0.0)
       { // no neighbours with this color found. probably x-trans :(
         buffer_set(detail, x, y, channel, 0.0);
         buffer_set(coarse, x, y, channel, -1.0);
+      }
+      else if(!restart && null_cnt >= 20)// && scale == 0)
+      { // found something, but only really the center one has a weight.
+        // avoid fireflies and average this probably stuck pixel/extreme noise outlier:
+        // XXX this is only effective to a very limited extend! should rather get edges from a prepass
+        __sync_fetch_and_add(&flycnt, 1);
+        restart = 1;
+        goto restart;
       }
       else
       { // have some estimated coarse value, yay
@@ -273,6 +289,7 @@ static inline void decompose(
       }
     }
   }
+  fprintf(stderr, "scale %d detected %d flies\n", scale, flycnt);
 }
 
 static inline void synthesize(
