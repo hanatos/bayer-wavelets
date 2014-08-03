@@ -35,7 +35,10 @@ static inline int buffer_get_channel(
 {
   // equivalent to dcraw's FC()
   // hardcoded rggb for now. should work on x-trans style sensors, too.
-  const int ch[4] = {0, 1, 1, 2};
+  // std 5dm2
+  // const int ch[4] = {0, 1, 1, 2};
+  // 5dm2 when black borders aren't cropped:
+  const int ch[4] = {1, 2, 0, 1};
   return ch[(x&1)+2*(y&1)];
 }
 
@@ -229,7 +232,86 @@ static inline float weight(
   return weight;
 }
 
-static inline void decompose(
+static inline int decompose_raw(
+    const buffer_t *input,
+    buffer_t *coarse,
+    buffer_t *detail,
+    int channel,
+    int scale)
+{
+  const int mult = 1<<scale;
+  const float filter[5] = {1.0f/16.0f, 4.0f/16.0f, 6.0f/16.0f, 4.0f/16.0f, 1.0f/16.0f};
+  int cnt = 0;
+  int incomplete = 0; // signal whether or not the coarse buffer still contains undefined pixels 
+#pragma omp parallel for default(shared)
+  for(int y=0;y<coarse->height;y++)
+  {
+    const int progress = __sync_fetch_and_add(&cnt, 1);
+    if((progress & 0xff) == 0xff || progress == coarse->height-1)
+      fprintf(stderr, "decompose scale %d channel %d %d/%d\r", scale, channel, progress, coarse->height);
+    for(int x=0;x<coarse->width;x++)
+    {
+      float sum = 0.0f, wgt = 0.0f;
+      for(int i=0;i<5;i++)
+      {
+        const int xx = x+mult*(i-2), yy = y;
+        const float px = buffer_get(input, xx, yy, channel);
+        const float w = (px != -1.0f) ? filter[i] : 0.0;
+        sum += w*px;
+        wgt += w;
+      }
+      if(wgt <= 0.0)
+      { // no neighbours with this color found. probably x-trans :(
+        buffer_set(coarse, x, y, channel, -1.0);
+      }
+      else buffer_set(coarse, x, y, channel, sum/wgt);
+    }
+  }
+
+  cnt = 0;
+#pragma omp parallel for default(shared)
+  for(int x=0;x<coarse->width;x++)
+  {
+    const int progress = __sync_fetch_and_add(&cnt, 1);
+    if((progress & 0xff) == 0xff || progress == coarse->width-1)
+      fprintf(stderr, "decompose scale %d channel %d %d/%d\r", scale, channel, progress, coarse->width);
+    for(int y=0;y<coarse->height;y++)
+    {
+      float wgt = 0.0f, sum = 0.0f;
+      for(int j=0;j<5;j++)
+      {
+        const int xx = x, yy = y+mult*(j-2);
+        const float px = buffer_get(coarse, xx, yy, channel);
+        const float w = (px != -1.0f) ? filter[j] : 0.0;
+        sum += w*px;
+        wgt += w;
+      }
+
+      if(wgt <= 0.0)
+      { // no neighbours with this color found. probably x-trans :(
+        buffer_set(detail, x, y, channel, 0.0);
+        buffer_set(coarse, x, y, channel, -1.0);
+        incomplete = 1; // data race, but stays one in either case.
+      }
+      else
+      { // have some estimated coarse value, yay
+        sum /= wgt;
+        const float pixel = buffer_get(input, x, y, channel);
+        if(pixel >= 0.0) // do we also have a previous value? if yes, encode difference:
+          buffer_set(detail, x, y, channel, buffer_get(input, x, y, channel) - sum);
+        else // or else make it smooth
+          buffer_set(detail, x, y, channel, 0.0);
+        buffer_set(coarse, x, y, channel, sum);
+      }
+    }
+  }
+  fprintf(stderr, "scale %d done                                  \n", scale);
+  return incomplete;
+}
+
+// returns 0 if the buffer is completely filled, and 1 otherwise (contains
+// undefined pixels)
+static inline int decompose(
     const buffer_t *input,
     buffer_t *coarse,
     buffer_t *detail,
@@ -240,6 +322,7 @@ static inline void decompose(
   const float filter[5] = {1.0f/16.0f, 4.0f/16.0f, 6.0f/16.0f, 4.0f/16.0f, 1.0f/16.0f};
   int cnt = 0;
   int flycnt = 0;
+  int incomplete = 0; // signal whether or not the coarse buffer still contains undefined pixels 
 #pragma omp parallel for default(shared)
   for(int y=0;y<coarse->height;y++)
   {
@@ -252,7 +335,7 @@ static inline void decompose(
       const float null_thrs = 0.3f;
       int null_cnt = 0;
       int restart = 0;
-restart:
+// restart:
       for(int j=0;j<5;j++) for(int i=0;i<5;i++)
       {
         const int xx = x+mult*(i-2), yy = y+mult*(j-2);
@@ -268,15 +351,19 @@ restart:
       { // no neighbours with this color found. probably x-trans :(
         buffer_set(detail, x, y, channel, 0.0);
         buffer_set(coarse, x, y, channel, -1.0);
+        incomplete = 1; // data race, but stays one in either case.
       }
+#if 0
       else if(!restart && null_cnt >= 20)// && scale == 0)
       { // found something, but only really the center one has a weight.
         // avoid fireflies and average this probably stuck pixel/extreme noise outlier:
         // XXX this is only effective to a very limited extend! should rather get edges from a prepass
+        // XXX seems overly aggressive for color channels at level 0
         __sync_fetch_and_add(&flycnt, 1);
         restart = 1;
         goto restart;
       }
+#endif
       else
       { // have some estimated coarse value, yay
         sum /= wgt;
@@ -289,7 +376,8 @@ restart:
       }
     }
   }
-  fprintf(stderr, "scale %d detected %d flies\n", scale, flycnt);
+  fprintf(stderr, "scale %d detected %d flies                             \n", scale, flycnt);
+  return incomplete;
 }
 
 static inline void synthesize(

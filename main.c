@@ -1,16 +1,20 @@
 #include "wtf.h"
+#include "noiseprofile.h"
 
 int main(int argc, char *argv[])
 {
   if(argc < 2)
   {
     fprintf(stderr, "usage: %s input.pgm\n", argv[0]);
+    fprintf(stderr, "input should be non-demosaiced raw raw data (no wb, no black/white scaling, etc)\n");
     fprintf(stderr, "create pgm with dcraw -D -W -6 input.cr2\n");
-    fprintf(stderr, "create pgm with dcraw -4 -E -c -t 0 input.cr2\n");
+    fprintf(stderr, "create pgm with dcraw -4 -E -c -t 0 -o 0 -M -r 1 1 1 1 input.cr2 > input.pgm\n");
     exit(1);
   }
 
   buffer_t *raw = buffer_read_pgm16(argv[1]);
+  noiseprofile(raw);
+  return 0;
   // green values from 5dm2 measured after debayer+matrix, so more or less meaningless:
   // raw->noise_a = 7.34335232069023e-05;
   // raw->noise_b = 3.47619065786586e-07;
