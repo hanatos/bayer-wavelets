@@ -12,38 +12,23 @@ int main(int argc, char *argv[])
     exit(1);
   }
 
-  buffer_t *raw = buffer_read_pgm16(argv[1]);
-  noiseprofile(raw);
-  return 0;
-  // green values from 5dm2 measured after debayer+matrix, so more or less meaningless:
-  // raw->noise_a = 7.34335232069023e-05;
-  // raw->noise_b = 3.47619065786586e-07;
+  // from dcraw -v:
+  // const int black = 1023; // used in fit.gp
+  const int white = 15600;
+  buffer_t *raw = buffer_read_pgm16(argv[1], white);
 
-  // hand dialed for iso6400:
-  // raw->noise_a = 14.7e-5;
-  // raw->noise_b = 7.0e-7;
+  // noiseprofile(raw);
+  // return 0;
 
-  // iso 25600
-  // raw->noise_a = 120.e-5;
-  // raw->noise_b = 60.e-7;
-  raw->noise_a = 240.e-5;
-  raw->noise_b = 120.e-7;
+  // noiseprofiled with the above procedure:
+  // 5dm2 iso1600, wavelet scale2:
+  // raw->noise_a = 0.000234565466234752;
+  // raw->noise_b = -1.41864661910691e-05;
 
-  // from noiseprofiles.h for iso 1600
-  // raw->noise_a = 2.4e-5;
-  // raw->noise_b = -6e-7;
+  // 5dm2 iso1600, wavelet scale0:
+  raw->noise_a = 7.44e-05;
+  raw->noise_b = -4.82e-06;
 
-  // noiseprofiles.h for iso 100
-  // raw->noise_a = 2.5e-6;
-  // raw->noise_b = -1.3e-7;
-
-  // measured for this particular image:
-  // 8.39358241472871e-05 3.39274120804604e-05 8.0308395485184e-05 -1.16520884450047e-06 -4.33714555176887e-07 -1.09341959573161e-06
-  // sigma(scale) = sigma * 2^{-scale}, and sigma = sqrt(a + b*x)
-  // compensate for half-size image:
-  // const float maxval = 16383.0f/0xffff;
-  // raw->noise_a = 8.39358241472871e-05 * 4.0f / (maxval*maxval);
-  // raw->noise_b = -1.16520884450047e-06 * 4.0f / (maxval*maxval);
   raw->type = s_buf_raw_stabilise; // instruct that this should be read out transformed
   buffer_t *coarse0 = buffer_create_float(raw->width, raw->height);
   buffer_t *coarse1 = buffer_create_float(raw->width, raw->height);
@@ -94,7 +79,7 @@ int main(int argc, char *argv[])
   // buffer_write_pfm(detail0, "detail0.pfm");
   // buffer_write_pfm(detail1, "detail1.pfm");
   // buffer_write_pfm(detail2, "detail2.pfm");
-  // buffer_write_pfm(output0, "output0.pfm");
+  buffer_write_pfm(output0, "output0.pfm");
   // buffer_write_pfm(output1, "output1.pfm");
 
   exit(0);

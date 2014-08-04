@@ -75,6 +75,13 @@ void noiseprofile(buffer_t *raw)
   buffer_t *coarse2 = buffer_create_float(raw->width, raw->height);
   buffer_t *detail0 = buffer_create_float(raw->width, raw->height);
 
+#if 1
+  for(int channel=0;channel<3;channel++)
+  {
+    int incomplete = decompose_raw(raw, coarse2, detail0, channel, 0);
+    if(incomplete) fprintf(stderr, "[noiseprofile] arrgh, this filter pattern is not filled after first iteration (channel %d)!\n", channel);
+  }
+#else
   for(int channel=0;channel<3;channel++)
   {
     int incomplete = decompose_raw(raw, coarse0, detail0, channel, 0);
@@ -90,6 +97,8 @@ void noiseprofile(buffer_t *raw)
     int incomplete = decompose_raw(coarse1, coarse2, detail0, channel, 2);
     if(incomplete) fprintf(stderr, "[noiseprofile] arrgh, this filter pattern is not filled after third iteration (channel %d)!\n", channel);
   }
+#endif
+
   for(int j=0;j<raw->height;j++)
   {
     for(int i=0;i<raw->width;i++)
@@ -122,7 +131,7 @@ void noiseprofile(buffer_t *raw)
       {
         if(buffer_get(raw, i, j, c) != -1.0f)
         { // only if there is this color channel in the input:
-          llhh[2*k]   = buffer_get(coarse0, i, j, c);
+          llhh[2*k]   = buffer_get(coarse2, i, j, c);
           assert(llhh[2*k] != -1.0f); // or else complained above.
           llhh[2*k+1] = fabsf(buffer_get(detail0, i, j, c));
           k++;
@@ -156,9 +165,9 @@ void noiseprofile(buffer_t *raw)
   // correction factor accounting for relative frequency of color channels
   // in mosaic pattern. this is for a std bayer pattern, i.e. there are
   // twice as many green pixels as red and blue.
-  // float corr[3] = {1.0, 1.0/sqrtf(2.0), 1.0};
+  float corr[3] = {1.0, 1.0/sqrtf(2.0), 1.0};
   // when using input - coarse1, this results about in even noise levels:
-  float corr[3] = {1.0, 1.0, 1.0};
+  // float corr[3] = {1.0, 1.0, 1.0};
 
   float sum[3] = {0.0f};
   for(int i=0;i<N;i++)
@@ -174,7 +183,7 @@ void noiseprofile(buffer_t *raw)
   }
 
   // buffer_write_pfm(detail0, "detail.pfm");
-  // buffer_write_pfm(coarse0, "coarse.pfm");
+  // buffer_write_pfm(coarse2, "coarse.pfm");
 
   buffer_destroy(coarse0);
   buffer_destroy(coarse1);

@@ -142,7 +142,8 @@ static inline void buffer_write_pfm(
 }
 
 static inline buffer_t *buffer_read_pgm16(
-    const char *filename)
+    const char *filename,
+    const int white)
 {
   FILE *f = fopen(filename, "rb");
   if(f)
@@ -161,12 +162,9 @@ static inline buffer_t *buffer_read_pgm16(
     res = fread(b->data, sizeof(uint16_t), wd*ht, f);
     if(res != wd*ht) goto error;
     // swap byte order :(
-    uint16_t maxval = 0;
+    uint16_t maxval = white;
     for(int k=0;k<wd*ht;k++)
-    {
       ((uint16_t*)b->data)[k] = (((uint16_t*)b->data)[k]<<8) | (((uint16_t*)b->data)[k]>>8);
-      maxval = MAX(maxval, ((uint16_t*)b->data)[k]);
-    }
     fprintf(stderr, "[read_ppm16] scaling by %u\n", maxval);
     // rescale to full range:
     for(int k=0;k<wd*ht;k++)
@@ -388,8 +386,14 @@ static inline void synthesize(
     int scale)
 {
   fprintf(stderr, "synthesizing scale %d channel %d                     \r", scale, channel);
+#if 0
+  const float thrs = 0.0;
+  const float boost = 1.0;
+#else
   // noise variance level 0: 1.0
-  const float sigma_n = powf(2.0f, -scale);
+  const float sigma = 1.0f;
+  const float varf = sqrtf(2.0f + 2.0f * 4.0f*4.0f + 6.0f*6.0f)/16.0f; // about 0.5
+  const float sigma_n = powf(varf, scale) * sigma;
   // bayes shrink: T = sigma_n^2 / sqrtf(sigma_d^2 - sigma_n^2)
   // sigma_d^2 = 1/N sum detail(i)^2
   float sigma_d2 = 0.0f;
@@ -403,11 +407,13 @@ static inline void synthesize(
       k++;
     }
   }
+  sigma_d2 *= k/(k-1.0f); // unbiased empirical variance
 
   // wavelet shrinkage threshold.
-  const float thrs = sigma_n*sigma_n / sqrtf(fmaxf(1e-20f, sigma_d2 - sigma_n*sigma_n));
+  const float thrs = sigma_n*sigma_n / sqrtf(fmaxf(1e-30f, sigma_d2 - sigma_n*sigma_n));
   const float boost = 1.0f;
   fprintf(stderr, "\nscale %d sigma noise %g signal %g => thrs %g boost %g\n", scale, sigma_n, sqrtf(sigma_d2), thrs, boost);
+#endif
 #pragma omp parallel for default(shared)
   for(int y=0;y<coarse->height;y++)
   {
