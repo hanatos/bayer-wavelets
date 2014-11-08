@@ -5,6 +5,7 @@
 #include <string.h>
 #include <math.h>
 #include <unistd.h>
+#include <assert.h>
 
 #define CLAMP(A, L, H) ((A) > (L) ? ((A) < (H) ? (A) : (H)) : (L))
 #define MAX(A, B) (((A) > (B)) ? (A) : (B))
@@ -39,6 +40,8 @@ static inline int buffer_get_channel(
   // const int ch[4] = {0, 1, 1, 2};
   // 5dm2 when black borders aren't cropped:
   const int ch[4] = {1, 2, 0, 1};
+  // for samsung nx300
+  // const int ch[4] = {1, 2, 0, 1};
   return ch[(x&1)+2*(y&1)];
 }
 
@@ -208,6 +211,9 @@ static inline float weight(
   const float pac = buffer_get(a, ax, ay, ac);
   if(pac < 0.0) return 1.0f;
 
+  // XXX this fixes mazing artefacts. why doesn't the > 0 ? 1 : 0 part below do it?
+  // return 1.0;
+
   float d = 0.0f;
   const float cw[3] = {1.0, 2.0, 1.0};
   int dims = 0;
@@ -319,8 +325,8 @@ static inline int decompose(
   const int mult = 1<<scale;
   const float filter[5] = {1.0f/16.0f, 4.0f/16.0f, 6.0f/16.0f, 4.0f/16.0f, 1.0f/16.0f};
   int cnt = 0;
-  int flycnt = 0;
   int incomplete = 0; // signal whether or not the coarse buffer still contains undefined pixels 
+  // int flycnt = 0;
 #pragma omp parallel for default(shared)
   for(int y=0;y<coarse->height;y++)
   {
@@ -330,20 +336,23 @@ static inline int decompose(
     for(int x=0;x<coarse->width;x++)
     {
       float wgt = 0.0f, sum = 0.0f;
+#if 0
       const float null_thrs = 0.3f;
       int null_cnt = 0;
       int restart = 0;
-// restart:
+restart:
+#endif
       for(int j=0;j<5;j++) for(int i=0;i<5;i++)
       {
         const int xx = x+mult*(i-2), yy = y+mult*(j-2);
         const float px = buffer_get(input, xx, yy, channel);
         float ww = weight(input, x, y, channel, input, xx, yy);
-        if(restart) ww = ww > 0.0 ? 1.0 : 0.0;
+        if(scale == 0) ww = ww > 0.0 ? 1.0 : 0.0;
+        // if(restart) ww = ww > 0.0 ? 1.0 : 0.0;
+        // if(ww < null_thrs) null_cnt++;
         const float w = filter[i]*filter[j]*ww;
         sum += w*px;
         wgt += w;
-        if(ww < null_thrs) null_cnt++;
       }
       if(wgt <= 0.0)
       { // no neighbours with this color found. probably x-trans :(
@@ -367,7 +376,7 @@ static inline int decompose(
         sum /= wgt;
         const float pixel = buffer_get(input, x, y, channel);
         if(pixel >= 0.0) // do we also have a previous value? if yes, encode difference:
-          buffer_set(detail, x, y, channel, buffer_get(input, x, y, channel) - sum);
+          buffer_set(detail, x, y, channel, pixel - sum);
         else // or else make it smooth
           buffer_set(detail, x, y, channel, 0.0);
         buffer_set(coarse, x, y, channel, sum);

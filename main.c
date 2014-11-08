@@ -76,11 +76,11 @@ int main(int argc, char *argv[])
   buffer_write_pfm(coarse0, "coarse0.pfm");
   buffer_write_pfm(coarse1, "coarse1.pfm");
   buffer_write_pfm(coarse2, "coarse2.pfm");
-  // buffer_write_pfm(detail0, "detail0.pfm");
-  // buffer_write_pfm(detail1, "detail1.pfm");
-  // buffer_write_pfm(detail2, "detail2.pfm");
+  buffer_write_pfm(detail0, "detail0.pfm");
+  buffer_write_pfm(detail1, "detail1.pfm");
+  buffer_write_pfm(detail2, "detail2.pfm");
   buffer_write_pfm(output0, "output0.pfm");
-  // buffer_write_pfm(output1, "output1.pfm");
+  buffer_write_pfm(output1, "output1.pfm");
 
   exit(0);
 }
