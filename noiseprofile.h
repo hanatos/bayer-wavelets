@@ -131,7 +131,7 @@ void noiseprofile(buffer_t *raw)
       {
         if(buffer_get(raw, i, j, c) != -1.0f)
         { // only if there is this color channel in the input:
-          llhh[2*k]   = buffer_get(coarse2, i, j, c);
+          llhh[2*k]   = buffer_get(coarse2, i, j, c)/raw->white;
           assert(llhh[2*k] != -1.0f); // or else complained above.
           llhh[2*k+1] = fabsf(buffer_get(detail0, i, j, c));
           k++;
@@ -175,7 +175,7 @@ void noiseprofile(buffer_t *raw)
   float cdf[3] = {0.0f};
   for(int i=0;i<N;i++)
   {
-    fprintf(stdout, "%f %f %f %f %f %f %f %f %f %f\n", i/(float)N, std[i][0]*corr[0], std[i][1]*corr[1], std[i][2]*corr[2],
+    fprintf(stdout, "%f %f %f %f %f %f %f %f %f %f\n", raw->white * i/(float)N, std[i][0]*corr[0], std[i][1]*corr[1], std[i][2]*corr[2],
         cnt[i][0], cnt[i][1], cnt[i][2],
         cdf[0]/sum[0], cdf[1]/sum[1], cdf[2]/sum[2]);
         // cdf[0], cdf[1], cdf[2]);

@@ -27,6 +27,7 @@ typedef struct buffer_t
   void *data;                // allocated data, depends on type
   int width, height;         // dimensions of the buffer
   float noise_a, noise_b;    // noise variance model parameters
+  float black, white;        // black and white levels of data
 }
 buffer_t;
 
@@ -37,9 +38,9 @@ static inline int buffer_get_channel(
   // equivalent to dcraw's FC()
   // hardcoded rggb for now. should work on x-trans style sensors, too.
   // std 5dm2
-  // const int ch[4] = {0, 1, 1, 2};
+  const int ch[4] = {0, 1, 1, 2};
   // 5dm2 when black borders aren't cropped:
-  const int ch[4] = {1, 2, 0, 1};
+  // const int ch[4] = {1, 2, 0, 1};
   // for samsung nx300
   // const int ch[4] = {1, 2, 0, 1};
   return ch[(x&1)+2*(y&1)];
@@ -61,14 +62,14 @@ static inline float buffer_get(
   {
     case s_buf_raw:
       if(channel != buffer_get_channel(x, y)) return -1.0f; // mark as not set
-      return ((uint16_t *)b->data)[x + b->width*y]/(float)0xffff;
+      return ((uint16_t *)b->data)[x + b->width*y];//  /(float)0xffff;
     case s_buf_float:
       return ((float *)b->data)[3*(x + b->width*y) + channel];
     case s_buf_raw_stabilise:
       { // apply variance stabilising transform (should be 1.0 after this)
       if(channel != buffer_get_channel(x, y)) return -1.0f; // mark as not set
       const float sigma2 = (b->noise_b/b->noise_a)*(b->noise_b/b->noise_a);
-      const float v = ((uint16_t *)b->data)[x + b->width*y]/(float)0xffff;
+      const float v = ((uint16_t *)b->data)[x + b->width*y]; // /(float)0xffff;
       return 2.0f*sqrtf(fmaxf(0.0f, v/b->noise_a + 3./8. + sigma2));
       }
     case s_buf_float_backtransform:
@@ -136,7 +137,9 @@ static inline void buffer_write_pfm(
     { // write one-by-one and backtransform
       for(int j=0;j<b->height;j++) for(int i=0;i<b->width;i++) for(int k=0;k<3;k++)
       {
-        const float v = buffer_get(b, i, j, k);
+        float v = buffer_get(b, i, j, k);
+        // normalise to white == 1.0 and subtract black
+        v = (v-b->black)/(b->white-b->black);
         fwrite(&v, sizeof(float), 1, f);
       }
     }
@@ -161,17 +164,19 @@ static inline buffer_t *buffer_read_pgm16(
     b->type = s_buf_raw;
     b->width = wd;
     b->height = ht;
+    b->white = 65535.0f;
+    b->black = 0.0;
     b->data = malloc(sizeof(uint16_t)*wd*ht);
     res = fread(b->data, sizeof(uint16_t), wd*ht, f);
     if(res != wd*ht) goto error;
     // swap byte order :(
-    uint16_t maxval = white;
+    // uint16_t maxval = white;
     for(int k=0;k<wd*ht;k++)
       ((uint16_t*)b->data)[k] = (((uint16_t*)b->data)[k]<<8) | (((uint16_t*)b->data)[k]>>8);
-    fprintf(stderr, "[read_ppm16] scaling by %u\n", maxval);
+    // fprintf(stderr, "[read_ppm16] scaling by %u\n", maxval);
     // rescale to full range:
-    for(int k=0;k<wd*ht;k++)
-      ((uint16_t*)b->data)[k] = (uint16_t)CLAMP(((uint16_t*)b->data)[k]/(float)maxval*0xffff, 0, 0xffff);
+    // for(int k=0;k<wd*ht;k++)
+      // ((uint16_t*)b->data)[k] = (uint16_t)CLAMP(((uint16_t*)b->data)[k]/(float)maxval*0xffff, 0, 0xffff);
     fclose(f);
     return b;
 error:
@@ -191,6 +196,8 @@ static inline buffer_t *buffer_create_float(
   b->type = s_buf_float;
   b->width = wd;
   b->height = ht;
+  b->white = 1.0;
+  b->black = 0.0;
   b->data = malloc(sizeof(float)*3*wd*ht);
   memset(b->data, 0, wd*ht*3*sizeof(float));
   return b;
@@ -383,7 +390,7 @@ restart:
       }
     }
   }
-  fprintf(stderr, "scale %d detected %d flies                             \n", scale, flycnt);
+  // fprintf(stderr, "scale %d detected %d flies                             \n", scale, flycnt);
   return incomplete;
 }
 

@@ -13,12 +13,12 @@ int main(int argc, char *argv[])
   }
 
   // from dcraw -v:
-  // const int black = 1023; // used in fit.gp
+  const int black = 1023; // used in fit.gp
   const int white = 15600;
   buffer_t *raw = buffer_read_pgm16(argv[1], white);
 
-  // noiseprofile(raw);
-  // return 0;
+  noiseprofile(raw);
+  return 0;
 
   // noiseprofiled with the above procedure:
   // 5dm2 iso1600, wavelet scale2:
@@ -69,10 +69,20 @@ int main(int argc, char *argv[])
 
   // now switch type before writing out:
   coarse0->type = s_buf_float_backtransform;
+  coarse0->black = black;
+  coarse0->white = white;
   coarse1->type = s_buf_float_backtransform;
+  coarse1->black = black;
+  coarse1->white = white;
   coarse2->type = s_buf_float_backtransform;
+  coarse2->black = black;
+  coarse2->white = white;
   output0->type = s_buf_float_backtransform;
+  output0->black = black;
+  output0->white = white;
   output1->type = s_buf_float_backtransform;
+  output1->black = black;
+  output1->white = white;
   buffer_write_pfm(coarse0, "coarse0.pfm");
   buffer_write_pfm(coarse1, "coarse1.pfm");
   buffer_write_pfm(coarse2, "coarse2.pfm");
